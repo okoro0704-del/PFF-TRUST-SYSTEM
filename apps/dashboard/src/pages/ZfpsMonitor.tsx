@@ -131,7 +131,7 @@ export function ZfpsMonitor({ onBack }: { onBack: () => void }) {
       });
 
     channelRef.current = ch;
-    return () => { void supabase.removeChannel(ch); };
+    return () => { void supabase?.removeChannel(ch); };
   }, []);
 
   useEffect(() => { void load(); }, [load]);
