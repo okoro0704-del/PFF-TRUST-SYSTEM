@@ -1,0 +1,1405 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Triple-Gate encrypted storage (FR-03, FR-06)
+model TfanRecord {
+  id                    String   @id @default(cuid())
+  bvnHash               String   @map("bvn_hash")
+  fingerprintPacked     Bytes    @map("fingerprint_packed")
+  facePacked            Bytes    @map("face_packed")
+  mobilePacked          Bytes    @map("mobile_packed")
+  createdAt             DateTime @default(now()) @map("created_at")
+  lastVerificationRef   String?  @map("last_verification_ref")
+
+  @@map("tfan")
+  @@index([bvnHash])
+}
+
+/// Append-only verification ledger (FR-07)
+model VerificationLedger {
+  id                     String   @id @default(cuid())
+  externalTransactionId  String   @map("external_transaction_id")
+  policyMode             String   @map("policy_mode")
+  amountMinorUnits       Decimal  @map("amount_minor_units") @db.Decimal(24, 0)
+  currencyCode           String   @map("currency_code")
+  sentinelThresholdMinor Decimal? @map("sentinel_threshold_minor") @db.Decimal(24, 0)
+  fpOutcome              String   @map("fp_outcome")
+  faceOutcome            String   @map("face_outcome")
+  mobileOutcome          String   @map("mobile_outcome")
+  aggregateConfirmed     Boolean  @map("aggregate_confirmed")
+  mismatchAlert          Boolean  @default(false) @map("mismatch_alert")
+  nibssMetaJson          String?  @map("nibss_meta_json")
+  /// HMAC-peppered BVN hash — used for BVN consecutive-failure rate limiting
+  bvnHash                String?  @map("bvn_hash")
+  createdAt              DateTime @default(now()) @map("created_at")
+  orgId                  String   @default("default") @map("org_id")
+
+  @@map("verification_ledger")
+  @@index([createdAt])
+  @@index([orgId, createdAt])
+  @@index([bvnHash, createdAt])
+}
+
+/// Bank dedicated-account balances (Liquidity mirror — read model)
+model LiquiditySnapshot {
+  id           String   @id @default(cuid())
+  partnerBank  String   @map("partner_bank")
+  accountRef   String   @map("account_ref")
+  balanceMinor Decimal  @map("balance_minor") @db.Decimal(24, 0)
+  currencyCode String   @map("currency_code")
+  capturedAt   DateTime @default(now()) @map("captured_at")
+
+  @@map("liquidity_snapshot")
+  @@index([partnerBank, capturedAt])
+}
+
+/// Agent POS terminal binding + fraud-proof lock state (TCP)
+model PosTerminal {
+  id                       String   @id @default(cuid())
+  terminalId               String   @unique @map("terminal_id")
+  agentBvnHash             String   @map("agent_bvn_hash")
+  lockState                String   @map("lock_state")
+  lastActivityAt           DateTime @map("last_activity_at")
+  consecutiveFailedUnlocks Int      @default(0) @map("consecutive_failed_unlocks")
+  lastDailyLockAt          DateTime? @map("last_daily_lock_at")
+  stealthCaptureAt         DateTime? @map("stealth_capture_at")
+  orgId                    String   @default("default") @map("org_id")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  @@map("pos_terminal")
+  @@index([orgId])
+  @@index([agentBvnHash])
+}
+
+/// Append-only audit of terminal TCP / Sentinel events (optional FR-07 style trail)
+model TerminalTcpLedger {
+  id              String   @id @default(cuid())
+  terminalId      String   @map("terminal_id")
+  orgId           String   @default("default") @map("org_id")
+  eventType       String   @map("event_type")
+  payloadJson     String?  @map("payload_json")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("terminal_tcp_ledger")
+  @@index([terminalId, createdAt])
+  @@index([orgId, createdAt])
+}
+
+/// Non-BVN registrar: three AES-256-GCM strings — fingerprints bundle (10 templates), face, mobile
+model InternalBiometricSubject {
+  id                       String                   @id @default(cuid())
+  publicSubjectId          String                   @unique @map("public_subject_id")
+  /** Single ciphertext: JSON { v, templates: string[] } with 10 base64 templates inside */
+  fingerprintsBundlePacked Bytes?                   @map("fingerprints_bundle_packed")
+  facePacked               Bytes                    @map("face_packed")
+  mobilePacked             Bytes                    @map("mobile_packed")
+  shardRegion              String                   @map("shard_region")
+  orgId                    String                   @default("default") @map("org_id")
+  createdAt                DateTime                 @default(now()) @map("created_at")
+  fingerprintSlots         InternalFingerprintSlot[]
+  accounts                 LedgerAccount[]
+  unbankedProfile          UnbankedProfile?
+
+  @@map("internal_biometric_subject")
+  @@index([shardRegion])
+}
+
+model InternalFingerprintSlot {
+  id                 String                   @id @default(cuid())
+  subjectId          String                   @map("subject_id")
+  slotIndex          Int                      @map("slot_index")
+  fingerprintPacked  Bytes                    @map("fingerprint_packed")
+  subject            InternalBiometricSubject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([subjectId, slotIndex])
+  @@map("internal_fingerprint_slot")
+  @@index([subjectId])
+}
+
+model LedgerAccount {
+  id                      String                    @id @default(cuid())
+  publicRef               String                    @unique @map("public_ref")
+  ownerBvnHash            String?                   @map("owner_bvn_hash")
+  ownerInternalSubjectId  String?                   @map("owner_internal_subject_id")
+  currencyCode            String                    @map("currency_code")
+  balanceMinor            Decimal                   @default(0) @map("balance_minor") @db.Decimal(24, 0)
+  shardRegion             String                    @map("shard_region")
+  orgId                   String                    @default("default") @map("org_id")
+  createdAt               DateTime                  @default(now()) @map("created_at")
+  internalSubject         InternalBiometricSubject? @relation(fields: [ownerInternalSubjectId], references: [id])
+  debitTransfers          LedgerTransfer[]          @relation("DebitTransfers")
+  creditTransfers         LedgerTransfer[]          @relation("CreditTransfers")
+  withdrawals             WithdrawalAuthorization[]
+  billPayments            BillPayment[]
+
+  @@map("ledger_account")
+  @@index([ownerBvnHash])
+  @@index([ownerInternalSubjectId])
+  @@index([shardRegion])
+}
+
+model LedgerTransfer {
+  id                  String         @id @default(cuid())
+  idempotencyKey      String?        @unique @map("idempotency_key")
+  debitAccountId      String         @map("debit_account_id")
+  creditAccountId     String         @map("credit_account_id")
+  amountMinor         Decimal        @map("amount_minor") @db.Decimal(24, 0)
+  currencyCode        String         @map("currency_code")
+  narrative           String?
+  biometricAuditJson  String         @map("biometric_audit_json")
+  executionStatus     String         @map("execution_status")
+  shardRegion         String         @map("shard_region")
+  orgId               String         @default("default") @map("org_id")
+  createdAt           DateTime       @default(now()) @map("created_at")
+  debitAccount        LedgerAccount  @relation("DebitTransfers", fields: [debitAccountId], references: [id])
+  creditAccount       LedgerAccount  @relation("CreditTransfers", fields: [creditAccountId], references: [id])
+
+  @@map("ledger_transfer")
+  @@index([debitAccountId])
+  @@index([createdAt])
+}
+
+model WithdrawalAuthorization {
+  id                 String        @id @default(cuid())
+  token              String        @unique
+  accountId          String        @map("account_id")
+  amountMinor        Decimal       @map("amount_minor") @db.Decimal(24, 0)
+  currencyCode       String        @map("currency_code")
+  channel            String
+  biometricAuditJson String        @map("biometric_audit_json")
+  /// ACTIVE → REDEEMED | EXPIRED
+  status             String
+  expiresAt          DateTime      @map("expires_at")
+  /// Set when ATM/POS redeems the token (POST /withdraw/redeem)
+  redeemedAt         DateTime?     @map("redeemed_at")
+  redemptionChannel  String?       @map("redemption_channel")
+  shardRegion        String        @map("shard_region")
+  orgId              String        @default("default") @map("org_id")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  account            LedgerAccount @relation(fields: [accountId], references: [id])
+
+  @@map("withdrawal_authorization")
+  @@index([accountId])
+  @@index([status])
+}
+
+model BillPayment {
+  id                 String        @id @default(cuid())
+  idempotencyKey     String?       @unique @map("idempotency_key")
+  accountId          String        @map("account_id")
+  amountMinor        Decimal       @map("amount_minor") @db.Decimal(24, 0)
+  currencyCode       String        @map("currency_code")
+  vcapReference      String        @map("vcap_reference")
+  utilityCode        String        @map("utility_code")
+  biometricAuditJson String        @map("biometric_audit_json")
+  status             String
+  shardRegion        String        @map("shard_region")
+  orgId              String        @default("default") @map("org_id")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  account            LedgerAccount @relation(fields: [accountId], references: [id])
+
+  @@map("bill_payment")
+  @@index([accountId])
+}
+
+model PulseSyncQueue {
+  id            String    @id @default(cuid())
+  referenceType String    @map("reference_type")
+  referenceId   String    @map("reference_id")
+  payloadJson   String    @map("payload_json")
+  status        String
+  shardRegion   String    @map("shard_region")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  settledAt     DateTime? @map("settled_at")
+
+  @@map("pulse_sync_queue")
+  @@index([status])
+  @@index([referenceType, referenceId])
+}
+
+/// Demographic + status record for unbanked users awaiting NIBSS BVN generation
+model UnbankedProfile {
+  id                String            @id @default(cuid())
+  /// TFAN — Tech & Finance Access Number assigned before BVN is issued
+  tfanId            String            @unique @map("tfan_id")
+  internalSubjectId String            @unique @map("internal_subject_id")
+  firstName         String            @map("first_name")
+  lastName          String            @map("last_name")
+  middleName        String?           @map("middle_name")
+  dateOfBirth       DateTime          @map("date_of_birth")
+  gender            String
+  address           String
+  stateOfOrigin     String            @map("state_of_origin")
+  /// Regional compliance: "NG" | "GH" — data processed in home country before NIBSS push
+  shardCountry      String            @default("NG") @map("shard_country")
+  /// UNBANKED → NIBSS_SUBMITTED → BANKABLE | DUPLICATE_LINKED
+  status            String            @default("UNBANKED")
+  /// Set after NIBSS SUCCESS or DUPLICATE resolution
+  bvnHash           String?           @map("bvn_hash")
+  nibssEnrollmentId String?           @map("nibss_enrollment_id")
+  orgId             String            @default("default") @map("org_id")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  internalSubject   InternalBiometricSubject @relation(fields: [internalSubjectId], references: [id])
+  submissions       NibssSubmission[]
+
+  @@map("unbanked_profile")
+  @@index([bvnHash])
+  @@index([status, orgId])
+  @@index([orgId, createdAt])
+}
+
+/// Immutable audit log of every NIBSS BVN generation submission (Enrollment_ID, Timestamp, Response)
+model NibssSubmission {
+  id                   String          @id @default(cuid())
+  profileId            String          @map("profile_id")
+  /// Our generated reference sent to NIBSS
+  enrollmentId         String          @unique @map("enrollment_id")
+  submissionTimestamp  DateTime        @default(now()) @map("submission_timestamp")
+  /// Full raw NIBSS response JSON — retained for audit & compliance
+  nibssResponsePayload String?         @map("nibss_response_payload")
+  /// PENDING | SUCCESS | DUPLICATE | ERROR
+  nibssStatus          String          @map("nibss_status")
+  /// Raw BVN from NIBSS (audit record only; profile stores bvnHash)
+  assignedBvn          String?         @map("assigned_bvn")
+  shardCountry         String          @default("NG") @map("shard_country")
+  orgId                String          @default("default") @map("org_id")
+  createdAt            DateTime        @default(now()) @map("created_at")
+  profile              UnbankedProfile @relation(fields: [profileId], references: [id])
+
+  @@map("nibss_submission")
+  @@index([profileId])
+  @@index([nibssStatus])
+  @@index([orgId, createdAt])
+}
+
+/// Immutable append-only Watch Eye log — every NIBSS YES gate beyond the initial enrollment.
+/// Biometric strings are AES-256-GCM encrypted (unique IV per entry).
+/// Provides a supplemental audit trail without overwriting the original TfanRecord blobs.
+model WatchEyeSupplementalLog {
+  id            String   @id @default(cuid())
+  bvnHash       String   @map("bvn_hash")
+  /// "fingerprint" | "face" | "mobile"
+  gate          String
+  packedBlob    Bytes    @map("packed_blob")
+  correlationId String?  @map("correlation_id")
+  orgId         String   @default("default") @map("org_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("watch_eye_supplemental_log")
+  @@index([bvnHash, gate])
+  @@index([bvnHash, createdAt])
+  @@index([orgId, createdAt])
+}
+
+// ── LLIW: Liquidity-Linked Incentive & Withdrawal Gate ───────────────────────
+
+/// Customer savings cycle — 31-day session backed by Agent Liquidity stake (LLIW)
+model SavingsCycle {
+  id                   String   @id @default(cuid())
+  /// Public-facing reference (shared with customers/agents)
+  cycleRef             String   @unique @map("cycle_ref")
+  customerBvnHash      String   @map("customer_bvn_hash")
+  agentBvnHash         String   @map("agent_bvn_hash")
+
+  /// Day-1 First Payment total (minor units, e.g. kobo)
+  day1TotalFeeMinor    Decimal  @map("day1_total_fee_minor") @db.Decimal(24, 0)
+  /// = day1TotalFeeMinor × 0.60 — the Agent Liquidity stake that seeds daily incentives
+  agentLiquidityMinor  Decimal  @map("agent_liquidity_minor") @db.Decimal(24, 0)
+  /// Expected daily customer deposit amount (Day 2–31)
+  dailyDepositMinor    Decimal  @map("daily_deposit_minor") @db.Decimal(24, 0)
+  /// Running sum of all daily customer deposits (principal saved)
+  totalSavedMinor      Decimal  @default(0) @map("total_saved_minor") @db.Decimal(24, 0)
+  daysSaved            Int      @default(0) @map("days_saved")
+
+  currencyCode         String   @map("currency_code")
+  partnerBank          String   @map("partner_bank")
+
+  /// ACTIVE | MATURED_FULL_CYCLE | MATURED_MONTH_END | BROKEN | WITHDRAWN
+  status               String   @map("status")
+  /// LOCKED | OPEN_FULL_CYCLE | OPEN_MONTH_END | OPEN_EMERGENCY — server-side only
+  withdrawalGateStatus String   @default("LOCKED") @map("withdrawal_gate_status")
+
+  startDate            DateTime @map("start_date")
+  maturityUnlockedAt   DateTime? @map("maturity_unlocked_at")
+  withdrawnAt          DateTime? @map("withdrawn_at")
+
+  /// Emergency Break audit fields
+  penaltyEventId       String?  @map("penalty_event_id")
+  penaltyMinor         Decimal? @map("penalty_minor") @db.Decimal(24, 0)
+  netPayoutMinor       Decimal? @map("net_payout_minor") @db.Decimal(24, 0)
+
+  orgId                String   @default("default") @map("org_id")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  deposits             DailyDepositLog[]
+  incentives           AgentIncentiveLog[]
+
+  @@map("savings_cycle")
+  @@index([customerBvnHash])
+  @@index([agentBvnHash])
+  @@index([orgId, status])
+  @@index([status, daysSaved])
+}
+
+/// Append-only daily deposit log — one row per customer deposit (Day 1–31)
+model DailyDepositLog {
+  id                      String   @id @default(cuid())
+  cycleId                 String   @map("cycle_id")
+  dayNumber               Int      @map("day_number")
+  amountMinor             Decimal  @map("amount_minor") @db.Decimal(24, 0)
+  biometricValidationHash String?  @map("biometric_validation_hash")
+  depositedAt             DateTime @default(now()) @map("deposited_at")
+  orgId                   String   @default("default") @map("org_id")
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  cycle                   SavingsCycle      @relation(fields: [cycleId], references: [id])
+  incentive               AgentIncentiveLog?
+
+  @@map("daily_deposit_log")
+  @@unique([cycleId, dayNumber])
+  @@index([cycleId, depositedAt])
+}
+
+/// System-to-Agent incentive log — 2% of 60% Day-1 Agent Liquidity per deposit day (Day 2–31)
+model AgentIncentiveLog {
+  id                   String    @id @default(cuid())
+  cycleId              String    @map("cycle_id")
+  /// One incentive per deposit — enforced by unique constraint
+  depositId            String    @unique @map("deposit_id")
+  dayNumber            Int       @map("day_number")
+  incentiveAmountMinor Decimal   @map("incentive_amount_minor") @db.Decimal(24, 0)
+  agentBvnHash         String    @map("agent_bvn_hash")
+  partnerBank          String    @map("partner_bank")
+  /// PENDING | SETTLED | FAILED
+  status               String    @default("PENDING") @map("status")
+  settledAt            DateTime? @map("settled_at")
+  orgId                String    @default("default") @map("org_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  cycle                SavingsCycle    @relation(fields: [cycleId], references: [id])
+  deposit              DailyDepositLog @relation(fields: [depositId], references: [id])
+
+  @@map("agent_incentive_log")
+  @@index([agentBvnHash, createdAt])
+  @@index([cycleId])
+  @@index([status])
+}
+
+/// Immutable audit trail for Emergency Break ("Break Safe") events — FR-07 compliance
+model EmergencyBreakLog {
+  id              String   @id @default(cuid())
+  /// Unique penalty audit reference for month-end reconciliation
+  penaltyEventId  String   @unique @map("penalty_event_id")
+  cycleId         String   @unique @map("cycle_id")
+  customerBvnHash String   @map("customer_bvn_hash")
+  agentBvnHash    String   @map("agent_bvn_hash")
+  totalSavedMinor Decimal  @map("total_saved_minor") @db.Decimal(24, 0)
+  penaltyMinor    Decimal  @map("penalty_minor") @db.Decimal(24, 0)
+  netPayoutMinor  Decimal  @map("net_payout_minor") @db.Decimal(24, 0)
+  daysBrokenAt    Int      @map("days_broken_at")
+  orgId           String   @default("default") @map("org_id")
+  brokenAt        DateTime @default(now()) @map("broken_at")
+
+  @@map("emergency_break_log")
+  @@index([customerBvnHash])
+  @@index([orgId, brokenAt])
+}
+
+// ── BEPWG: Biometric Exchequer & Proximity Withdrawal Gate ───────────────────
+
+/// GPS location anchor — the "10m Rule" reference point captured at account creation.
+/// Synced with NIBSS/TFAN profile. Drives online and offline proximity checks.
+model LocationAnchor {
+  id               String   @id @default(cuid())
+  /// HMAC-peppered BVN hash — 1:1 with customer identity
+  customerBvnHash  String   @unique @map("customer_bvn_hash")
+  tfanId           String?  @map("tfan_id")
+  /// Decimal degrees (WGS-84). Precision: 7dp ≈ 1 cm resolution
+  latitudeDeg      Decimal  @map("latitude_deg")  @db.Decimal(10, 7)
+  longitudeDeg     Decimal  @map("longitude_deg") @db.Decimal(10, 7)
+  /// AES-256-GCM encrypted JSON blob for offline POS proximity validation.
+  /// Decrypted locally by the POS using OFFLINE_CACHE_SECRET — no network needed.
+  offlineCacheBlob Bytes    @map("offline_cache_blob")
+  orgId            String   @default("default") @map("org_id")
+  capturedAt       DateTime @default(now()) @map("captured_at")
+  updatedAt        DateTime @updatedAt       @map("updated_at")
+
+  @@map("location_anchor")
+  @@index([customerBvnHash])
+  @@index([orgId])
+}
+
+/// Trusted Agent relationship — built from shared savings history.
+/// Existence of a row means the agent is cleared for standard (1-gate) withdrawals.
+model TrustedAgentLink {
+  id              String   @id @default(cuid())
+  customerBvnHash String   @map("customer_bvn_hash")
+  agentBvnHash    String   @map("agent_bvn_hash")
+  /// Number of completed savings cycles between this customer and agent
+  cycleCount      Int      @default(1) @map("cycle_count")
+  firstLinkedAt   DateTime @default(now()) @map("first_linked_at")
+  lastActivityAt  DateTime @updatedAt      @map("last_activity_at")
+  orgId           String   @default("default") @map("org_id")
+
+  @@map("trusted_agent_link")
+  @@unique([customerBvnHash, agentBvnHash, orgId])
+  @@index([customerBvnHash])
+  @@index([agentBvnHash])
+}
+
+/// Immutable BEPWG withdrawal audit log — GPS, proximity distance, biometric method, amounts (FR-07)
+model BepwgWithdrawalLog {
+  id                  String   @id @default(cuid())
+  withdrawalRef       String   @unique @map("withdrawal_ref")
+  cycleRef            String   @map("cycle_ref")
+  customerBvnHash     String   @map("customer_bvn_hash")
+  agentBvnHash        String   @map("agent_bvn_hash")
+
+  /// GPS coordinates at time of withdrawal execution
+  gpsLatitude         Decimal  @map("gps_latitude")          @db.Decimal(10, 7)
+  gpsLongitude        Decimal  @map("gps_longitude")         @db.Decimal(10, 7)
+  distanceFromAnchorM Decimal  @map("distance_from_anchor_m") @db.Decimal(10, 2)
+  withinProximity     Boolean  @map("within_proximity")
+
+  /// "STANDARD_ONLINE" | "STANDARD_OFFLINE" | "BYPASS_TWO_GATE"
+  verificationMethod  String   @map("verification_method")
+  /// JSON: { face, fingerprint, mobile } → "MATCH"|"NO_MATCH"|"ERROR"|"SKIPPED"
+  gatesPassedJson     String   @map("gates_passed_json")
+  gatesPassedCount    Int      @map("gates_passed_count")
+
+  grossAmountMinor    Decimal  @map("gross_amount_minor") @db.Decimal(24, 0)
+  penaltyMinor        Decimal  @default(0) @map("penalty_minor") @db.Decimal(24, 0)
+  netAmountMinor      Decimal  @map("net_amount_minor")   @db.Decimal(24, 0)
+
+  penaltyEventId      String?  @map("penalty_event_id")
+  /// "FULL_CYCLE" | "MONTH_END" | "EMERGENCY_BREAK"
+  cycleMaturity       String   @map("cycle_maturity")
+
+  orgId               String   @default("default") @map("org_id")
+  executedAt          DateTime @default(now()) @map("executed_at")
+
+  @@map("bepwg_withdrawal_log")
+  @@index([customerBvnHash, executedAt])
+  @@index([cycleRef])
+  @@index([orgId, executedAt])
+}
+
+// ── LBAS: Liveness, External Biometric & Networkless Authentication Suite ────
+
+/// Anti-spoofing liveness challenge session — randomised task sequence with optical-flow proof.
+/// Prevents photo, video, and deepfake attacks on Face Pay.
+model LivenessChallenge {
+  id              String    @id @default(cuid())
+  /// Opaque session token returned to client after challenge issue
+  sessionToken    String    @unique @map("session_token")
+  customerBvnHash String    @map("customer_bvn_hash")
+  /// JSON: ["BLINK_TWICE","HEAD_TURN_LEFT",...] — randomised at issue time
+  taskSequenceJson String   @map("task_sequence_json")
+  taskCount       Int       @map("task_count")
+  /// "PENDING" | "IN_PROGRESS" | "COMPLETED" | "FAILED" | "EXPIRED"
+  status          String    @map("status")
+  /// Optical-flow proof payload submitted by client (JSON per task)
+  proofJson       String?   @map("proof_json")
+  faceMatchResult Boolean?  @map("face_match_result")
+  /// Task completion scores (JSON array) stored for audit
+  scoresJson      String?   @map("scores_json")
+  expiresAt       DateTime  @map("expires_at")
+  orgId           String    @default("default") @map("org_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  completedAt     DateTime? @map("completed_at")
+
+  @@map("liveness_challenge")
+  @@index([sessionToken])
+  @@index([customerBvnHash, createdAt])
+  @@index([status, expiresAt])
+  @@index([orgId, createdAt])
+}
+
+/// External FAP-20 biometric sensor session — USB / Bluetooth (Dermalog, SecuGen, etc.)
+model ExternalSensorSession {
+  id               String    @id @default(cuid())
+  /// Hardware serial number of the FAP-20 device
+  deviceId         String    @unique @map("device_id")
+  /// "DERMALOG_LF10" | "SECUGEN_HAMSTER" | "ARATEK_A600" | "GENERIC_FAP20"
+  sensorModel      String    @map("sensor_model")
+  /// "USB" | "BLUETOOTH"
+  sensorProtocol   String    @map("sensor_protocol")
+  /// "REGISTERED" | "ACTIVE" | "DISCONNECTED" | "REVOKED"
+  status           String    @map("status")
+  bindingAgentHash String?   @map("binding_agent_hash")
+  orgId            String    @default("default") @map("org_id")
+  registeredAt     DateTime  @default(now()) @map("registered_at")
+  lastUsedAt       DateTime? @map("last_used_at")
+
+  @@map("external_sensor_session")
+  @@index([deviceId])
+  @@index([orgId, status])
+  @@index([bindingAgentHash])
+}
+
+/// Networkless POS challenge-response session — TOTP + cognitive task + two-step approval.
+model NetworklessSession {
+  id                 String    @id @default(cuid())
+  sessionRef         String    @unique @map("session_ref")
+  cycleRef           String    @map("cycle_ref")
+  customerBvnHash    String    @map("customer_bvn_hash")
+  agentBvnHash       String    @map("agent_bvn_hash")
+  terminalId         String    @map("terminal_id")
+  /// AES-256-GCM encrypted 20-byte TOTP seed — never stored in plaintext
+  encryptedTotpSeed  Bytes     @map("encrypted_totp_seed")
+  /// "INITIATED" | "APPROVED_STEP_A" | "CONFIRMED_STEP_B" | "COMPLETED" | "REJECTED" | "EXPIRED"
+  status             String    @map("status")
+  /// JSON: cognitive challenge issued to user's phone
+  cognitiveTaskJson  String    @map("cognitive_task_json")
+  /// HMAC-SHA256 of the expected cognitive answer (never plaintext)
+  cognitiveAnswerHash String   @map("cognitive_answer_hash")
+  stepAConfirmedAt   DateTime? @map("step_a_confirmed_at")
+  stepBConfirmedAt   DateTime? @map("step_b_confirmed_at")
+  expiresAt          DateTime  @map("expires_at")
+  orgId              String    @default("default") @map("org_id")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  @@map("networkless_session")
+  @@index([sessionRef])
+  @@index([customerBvnHash, createdAt])
+  @@index([terminalId, createdAt])
+  @@index([status, expiresAt])
+}
+
+/// Immutable LBAS audit trail — every liveness event, sensor submission, and challenge step (FR-07)
+model LbasAuditLog {
+  id              String   @id @default(cuid())
+  /// "LIVENESS_ISSUED"|"LIVENESS_COMPLETED"|"LIVENESS_FAILED"|"LIVENESS_EXPIRED"
+  /// "SENSOR_REGISTERED"|"FINGERPRINT_SUBMITTED"
+  /// "NET_INITIATED"|"NET_APPROVED_A"|"NET_CONFIRMED_B"|"NET_COMPLETED"|"NET_REJECTED"
+  eventType       String   @map("event_type")
+  sessionRef      String   @map("session_ref")
+  customerBvnHash String?  @map("customer_bvn_hash")
+  agentBvnHash    String?  @map("agent_bvn_hash")
+  /// Task results, sensor metadata, TOTP validation details — never raw biometrics
+  metadataJson    String?  @map("metadata_json")
+  orgId           String   @default("default") @map("org_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("lbas_audit_log")
+  @@index([sessionRef])
+  @@index([customerBvnHash, createdAt])
+  @@index([eventType, createdAt])
+  @@index([orgId, createdAt])
+}
+
+// ─── UNWP — Universal Networkless Withdrawal Protocol ──────────────────────────
+
+/// UNWP session for standard BVN accounts — no 10m geofence restriction (Mobility Freedom).
+/// Uses the same TOTP + cognitive two-step handshake as LBAS but operates account-wide.
+model UnwpSession {
+  id                  String    @id @default(cuid())
+  /// Server-generated; returned to POS; used to link step-A and step-B calls
+  sessionRef          String    @unique @map("session_ref")
+  /// Terminal-Linked Identifier — unique per transaction; anti-double-spend guard
+  tli                 String    @unique @map("tli")
+  accountPublicRef    String    @map("account_public_ref")
+  customerBvnHash     String    @map("customer_bvn_hash")
+  agentBvnHash        String    @map("agent_bvn_hash")
+  terminalId          String    @map("terminal_id")
+  /// BVN-linked phone hardware ID — required for audit trail
+  deviceId            String?   @map("device_id")
+  /// AES-256-GCM encrypted 20-byte TOTP seed — never stored in plaintext
+  encryptedTotpSeed   Bytes     @map("encrypted_totp_seed")
+  /// "INITIATED" | "APPROVED_STEP_A" | "COMPLETED" | "BIOMETRIC_ESCALATION" | "REJECTED" | "EXPIRED"
+  status              String    @map("status")
+  /// JSON: cognitive challenge (e.g., transaction-number task) issued to user's phone
+  cognitiveTaskJson   String    @map("cognitive_task_json")
+  /// HMAC-SHA256 of the expected cognitive answer — never stored in plaintext
+  cognitiveAnswerHash String    @map("cognitive_answer_hash")
+  /// Withdrawal amount in minor units (kobo) — used for offline ledger integrity
+  amountMinor         BigInt    @map("amount_minor")
+  currencyCode        String    @default("NGN") @map("currency_code")
+  /// Set when push notification delivery fails → biometric escalation path
+  escalationReason    String?   @map("escalation_reason")
+  stepAConfirmedAt    DateTime? @map("step_a_confirmed_at")
+  stepBConfirmedAt    DateTime? @map("step_b_confirmed_at")
+  expiresAt           DateTime  @map("expires_at")
+  orgId               String    @default("default") @map("org_id")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  /// Offline ledger entry, if transaction was committed without connectivity
+  offlineLedger       PosOfflineLedger?
+
+  @@map("unwp_session")
+  @@index([sessionRef])
+  @@index([tli])
+  @@index([customerBvnHash, createdAt])
+  @@index([terminalId, status])
+  @@index([orgId, createdAt])
+}
+
+/// POS-side encrypted offline transaction queue — prevents double-spending when connectivity is lost.
+/// Reconciled against NIBSS/BVN Portal on next heartbeat.
+model PosOfflineLedger {
+  id                  String    @id @default(cuid())
+  /// Must match UnwpSession.tli — unique constraint enforces anti-double-spend at DB level
+  tli                 String    @unique @map("tli")
+  sessionRef          String    @unique @map("session_ref")
+  terminalId          String    @map("terminal_id")
+  customerBvnHash     String    @map("customer_bvn_hash")
+  amountMinor         BigInt    @map("amount_minor")
+  currencyCode        String    @default("NGN") @map("currency_code")
+  /// AES-256-GCM encrypted full transaction payload (terminal key burned during binding)
+  encryptedPayload    Bytes     @map("encrypted_payload")
+  /// SHA-256 of plaintext payload — anti-tampering checksum validated on reconcile
+  payloadChecksum     String    @map("payload_checksum")
+  /// "QUEUED" | "SUBMITTED" | "RECONCILED" | "REJECTED"
+  status              String    @default("QUEUED") @map("status")
+  /// Which cognitive task the user completed (for audit)
+  taskId              String    @map("task_id")
+  /// Whether biometric escalation path was used instead of push
+  biometricFallback   Boolean   @default(false) @map("biometric_fallback")
+  /// Phone hardware ID for audit trail
+  deviceId            String?   @map("device_id")
+  /// ISO 8601 string of when the user approved on their phone
+  approvalTimestamp   DateTime  @map("approval_timestamp")
+  nibssCorrelationId  String?   @map("nibss_correlation_id")
+  reconciledAt        DateTime? @map("reconciled_at")
+  rejectionReason     String?   @map("rejection_reason")
+  orgId               String    @default("default") @map("org_id")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  session             UnwpSession @relation(fields: [sessionRef], references: [sessionRef])
+
+  @@map("pos_offline_ledger")
+  @@index([tli])
+  @@index([terminalId, status])
+  @@index([status, createdAt])
+  @@index([orgId, createdAt])
+}
+
+// ─── ZFOE — Zero-Friction Instant Onboarding Engine ───────────────────────────
+
+/// Full ZFOE session lifecycle — from MSISDN input to account number delivery.
+/// Tracks the 60-second mandate: provisionStartedAt → completedAt must be < 60 000ms.
+model ZfoeSession {
+  id                  String    @id @default(cuid())
+  sessionRef          String    @unique @map("session_ref")
+  /// HMAC-SHA256 of the BVN-linked MSISDN — for deduplication without storing raw number
+  msisdnHash          String    @map("msisdn_hash")
+  /// NIBSS correlation / token ID returned by the National Identity Mirror
+  nibssTokenId        String?   @map("nibss_token_id")
+  /// AES-256-GCM encrypted identity package (name, DOB, address, gender, hashes)
+  shadowProfileBlob   Bytes?    @map("shadow_profile_blob")
+  /// "INITIATED" | "IDENTITY_FETCHED" | "BANK_SELECTED" | "BIOMETRIC_OK" | "PROVISIONING" | "COMPLETED" | "FAILED"
+  status              String    @map("status")
+  selectedBankCode    String?   @map("selected_bank_code")
+  selectedBankName    String?   @map("selected_bank_name")
+  /// "SAVINGS" | "CURRENT"
+  accountType         String?   @map("account_type")
+  /// Final account number issued by the bank CBS
+  accountNumber       String?   @map("account_number")
+  /// Bank's CBS API response (JSON string) — for audit
+  bankApiResponse     String?   @map("bank_api_response")
+  /// Biometric gate used for authorization: "FACE" | "FINGERPRINT"
+  biometricGate       String?   @map("biometric_gate")
+  nibssBiometricCorrId String?  @map("nibss_biometric_corr_id")
+  /// When POST /v1/zfoe/:ref/provision was called — 60s mandate starts here
+  provisionStartedAt  DateTime? @map("provision_started_at")
+  completedAt         DateTime? @map("completed_at")
+  /// Elapsed milliseconds from provisionStartedAt → completedAt
+  elapsedMs           Int?      @map("elapsed_ms")
+  failureReason       String?   @map("failure_reason")
+  sessionExpiresAt    DateTime  @map("session_expires_at")
+  orgId               String    @default("default") @map("org_id")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  auditLogs           ZfoeAuditLog[]
+
+  @@map("zfoe_session")
+  @@index([sessionRef])
+  @@index([msisdnHash, createdAt])
+  @@index([status, createdAt])
+  @@index([selectedBankCode, accountType])
+  @@index([orgId, createdAt])
+}
+
+/// Append-only ZFOE audit trail — NIBSS_Token_ID · Bank_API_Response · Account_Generation_Timestamp.
+model ZfoeAuditLog {
+  id                    String    @id @default(cuid())
+  sessionRef            String    @map("session_ref")
+  eventType             String    @map("event_type")
+  nibssTokenId          String?   @map("nibss_token_id")
+  bankApiResponse       String?   @map("bank_api_response")
+  accountGenTimestamp   DateTime? @map("account_gen_timestamp")
+  metadataJson          String?   @map("metadata_json")
+  orgId                 String    @default("default") @map("org_id")
+  createdAt             DateTime  @default(now()) @map("created_at")
+
+  session               ZfoeSession @relation(fields: [sessionRef], references: [sessionRef])
+
+  @@map("zfoe_audit_log")
+  @@index([sessionRef])
+  @@index([nibssTokenId])
+  @@index([eventType, createdAt])
+  @@index([orgId, createdAt])
+}
+
+// ─── BIH — Biometric Identity Harvest & Instant Account Mint ─────────────────
+
+/// Lifecycle of a single fingerprint-initiated event (account setup or transaction gate).
+/// The raw encrypted template is NEVER persisted — only its SHA-256 hash (for audit).
+/// `templatePurgedAt` is set immediately after NIBSS match response is received.
+model BiometricScanSession {
+  id                     String    @id @default(cuid())
+  scanRef                String    @unique @map("scan_ref")
+  /// "ACCOUNT_SETUP" | "WITHDRAWAL" | "TRANSFER" | "BILL_PAYMENT"
+  transactionType        String    @map("transaction_type")
+  /// SHA-256 of the AES-256-GCM encrypted minutiae — raw template never stored
+  encryptedMinutiaeHash  String?   @map("encrypted_minutiae_hash")
+  /// NIBSS 1:N national registry match ID — unique per match event
+  nibssMatchId           String?   @unique @map("nibss_match_id")
+  /// Round-trip NIBSS latency in ms — must be < 3 000ms target
+  nibssLatencyMs         Int?      @map("nibss_latency_ms")
+  /// AES-256-GCM encrypted NIBSS identity package (Name, DOB, Address, photoHash, sigHash)
+  shadowProfileBlob      Bytes?    @map("shadow_profile_blob")
+  /// "SCAN_REQUESTED"|"NIBSS_MATCHED"|"IDENTITY_UNLOCKED"|"BANK_SELECTED"|"PROVISIONING"|"COMPLETED"|"FAILED"|"NO_MATCH"
+  status                 String    @map("status")
+  selectedBankCode       String?   @map("selected_bank_code")
+  selectedBankName       String?   @map("selected_bank_name")
+  /// "SAVINGS" | "CURRENT"
+  accountType            String?   @map("account_type")
+  /// Final NUBAN issued by the bank CBS on ACCOUNT_SETUP
+  accountNumber          String?   @map("account_number")
+  bankApiResponse        String?   @map("bank_api_response")
+  /// "PENDING" | "SUCCESS" | "FAILED"
+  bankProvisioningStatus String?   @map("bank_provisioning_status")
+  provisionStartedAt     DateTime? @map("provision_started_at")
+  completedAt            DateTime? @map("completed_at")
+  elapsedMs              Int?      @map("elapsed_ms")
+  /// Multi-functional gate fields (WITHDRAWAL / TRANSFER / BILL_PAYMENT)
+  operationAmountMinor   BigInt?   @map("operation_amount_minor")
+  operationRecipientRef  String?   @map("operation_recipient_ref")
+  operationBillerCode    String?   @map("operation_biller_code")
+  operationResult        String?   @map("operation_result")
+  /// Timestamp when the AES-GCM encrypted minutiae was purged (template hygiene)
+  templatePurgedAt       DateTime? @map("template_purged_at")
+  failureReason          String?   @map("failure_reason")
+  sessionExpiresAt       DateTime  @map("session_expires_at")
+  orgId                  String    @default("default") @map("org_id")
+  createdAt              DateTime  @default(now()) @map("created_at")
+
+  auditLogs              BihAuditLog[]
+
+  @@map("biometric_scan_session")
+  @@index([scanRef])
+  @@index([nibssMatchId])
+  @@index([transactionType, status])
+  @@index([status, createdAt])
+  @@index([orgId, createdAt])
+}
+
+/// Append-only BIH audit trail — NIBSS_Match_ID · Bank_Provisioning_Status · Account_Gen_Timestamp · scan latency.
+model BihAuditLog {
+  id                     String    @id @default(cuid())
+  scanRef                String    @map("scan_ref")
+  eventType              String    @map("event_type")
+  nibssMatchId           String?   @map("nibss_match_id")
+  bankProvisioningStatus String?   @map("bank_provisioning_status")
+  accountGenTimestamp    DateTime? @map("account_gen_timestamp")
+  scanLatencyMs          Int?      @map("scan_latency_ms")
+  operationType          String?   @map("operation_type")
+  metadataJson           String?   @map("metadata_json")
+  orgId                  String    @default("default") @map("org_id")
+  createdAt              DateTime  @default(now()) @map("created_at")
+
+  session                BiometricScanSession @relation(fields: [scanRef], references: [scanRef])
+
+  @@map("bih_audit_log")
+  @@index([scanRef])
+  @@index([nibssMatchId])
+  @@index([eventType, createdAt])
+  @@index([orgId, createdAt])
+}
+
+// ─── BLS-TSA — Biometric Liquidity Sweep & Two-Step Authorization ─────────────
+
+/// Full BLS-TSA session lifecycle.
+/// Enforces a rolling 60-second idle timer (idleExpiresAt) — distinct from a fixed mandate.
+/// Account map blob is encrypted at rest and zero-knowledge wiped after execution.
+model BlsSession {
+  id                    String    @id @default(cuid())
+  /// Stable session reference returned to all API callers
+  sessionRef            String    @unique @map("session_ref")
+  /// AES-256-GCM encrypted opaque session token (returned to client, validated server-side)
+  sessionToken          String    @unique @map("session_token")
+  /// "INITIATED"|"DISCOVERED"|"ACCOUNT_SELECTED"|"AWAITING_SEAL"|"EXECUTED"|"EXPIRED"|"FAILED"
+  status                String    @map("status")
+
+  // ── Discovery Scan (Scan #1) ─────────────────────────────────────────────
+  /// NIBSS_Match_ID from the first fingerprint scan — the Discovery_Scan_ID
+  discoveryScanId       String?   @unique @map("discovery_scan_id")
+  discoveryLatencyMs    Int?      @map("discovery_latency_ms")
+  /// SHA-256 of AES-256-GCM encrypted minutiae (audit — raw template never stored)
+  discoveryScanHash     String?   @map("discovery_scan_hash")
+  /// SHA-256 anchor of the BVN resolved by Discovery Scan — used to cross-validate the Seal Scan
+  bvnAnchorHash         String?   @map("bvn_anchor_hash")
+
+  // ── Account Map (AES-256-GCM; zero-knowledge wiped post-execution) ───────
+  /// Encrypted list of all bank accounts linked to this BVN fingerprint (with balances)
+  accountMapBlob        Bytes?    @map("account_map_blob")
+  /// Timestamp when accountMapBlob was set to null (zero-knowledge compliance proof)
+  accountsWipedAt       DateTime? @map("accounts_wiped_at")
+  /// Timestamp when biometric session data was purged from memory
+  templateDataPurgedAt  DateTime? @map("template_data_purged_at")
+
+  // ── Account Selection ────────────────────────────────────────────────────
+  /// Masked account reference chosen by user (e.g. "****1234")
+  selectedAccountRef    String?   @map("selected_account_ref")
+  selectedBankCode      String?   @map("selected_bank_code")
+  selectedBankName      String?   @map("selected_bank_name")
+  withdrawalAmountMinor BigInt?   @map("withdrawal_amount_minor")
+
+  // ── Seal Scan (Scan #2) ──────────────────────────────────────────────────
+  /// NIBSS_Match_ID from the second fingerprint scan — the Final_Authorization_Scan_ID
+  sealScanId            String?   @unique @map("seal_scan_id")
+  sealLatencyMs         Int?      @map("seal_latency_ms")
+  sealScanHash          String?   @map("seal_scan_hash")
+  /// Whether bvnAnchorHash == sealBvnHash (cross-validation: same person, two distinct events)
+  crossValidationPassed Boolean?  @map("cross_validation_passed")
+
+  // ── Execution ────────────────────────────────────────────────────────────
+  executionRef          String?   @map("execution_ref")
+  executionResult       String?   @map("execution_result")
+  failureReason         String?   @map("failure_reason")
+
+  // ── Timing ───────────────────────────────────────────────────────────────
+  /// Rolling 60-second idle expiry — reset on every API activity
+  idleExpiresAt         DateTime  @map("idle_expires_at")
+  /// Hard session ceiling: 15 minutes from initiation
+  sessionExpiresAt      DateTime  @map("session_expires_at")
+  orgId                 String    @default("default") @map("org_id")
+  createdAt             DateTime  @default(now()) @map("created_at")
+
+  auditLogs             BlsAuditLog[]
+
+  @@map("bls_session")
+  @@index([sessionRef])
+  @@index([discoveryScanId])
+  @@index([sealScanId])
+  @@index([status, createdAt])
+  @@index([orgId, createdAt])
+}
+
+/// Append-only BLS-TSA audit trail.
+/// Mandatory fields per spec: Discovery_Scan_ID · Selected_Bank_Code · Final_Authorization_Scan_ID.
+model BlsAuditLog {
+  id                  String    @id @default(cuid())
+  sessionRef          String    @map("session_ref")
+  eventType           String    @map("event_type")
+  /// Discovery_Scan_ID — NIBSS_Match_ID from scan #1
+  discoveryScanId     String?   @map("discovery_scan_id")
+  /// Selected_Bank_Code — written after POST /v1/bls/:ref/select
+  selectedBankCode    String?   @map("selected_bank_code")
+  /// Final_Authorization_Scan_ID — NIBSS_Match_ID from scan #2 (the Seal Scan)
+  finalAuthScanId     String?   @map("final_auth_scan_id")
+  discoveryLatencyMs  Int?      @map("discovery_latency_ms")
+  sealLatencyMs       Int?      @map("seal_latency_ms")
+  metadataJson        String?   @map("metadata_json")
+  orgId               String    @default("default") @map("org_id")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  session             BlsSession @relation(fields: [sessionRef], references: [sessionRef])
+
+  @@map("bls_audit_log")
+  @@index([sessionRef])
+  @@index([discoveryScanId])
+  @@index([finalAuthScanId])
+  @@index([eventType, createdAt])
+  @@index([orgId, createdAt])
+}
+
+// ─── BLIDE — Biometric Liveness & Identity Discovery Engine ──────────────────
+
+/// Full BLIDE session lifecycle — Face Pay with Active Liveness Challenge.
+/// Sub-60-second mandate measured from nibssMatchedAt → completedAt.
+model BlideSession {
+  id                    String    @id @default(cuid())
+  sessionRef            String    @unique @map("session_ref")
+  /// "ACCOUNT_SETUP" | "WITHDRAWAL" | "TRANSFER" | "BILL_PAYMENT"
+  transactionType       String    @map("transaction_type")
+  /// "INITIATED"|"FACE_CAPTURED"|"NIBSS_MATCHED"|"IDENTITY_UNLOCKED"|
+  /// "TARGET_SELECTED"|"LIVENESS_CHALLENGED"|"LIVENESS_VERIFIED"|"EXECUTING"|
+  /// "COMPLETED"|"FAILED"|"NO_MATCH"|"LIVENESS_FAILED"
+  status                String    @map("status")
+
+  // ── Face Scan ────────────────────────────────────────────────────────────
+  /// NIBSS 1:N face match ID (ISO 19794-5)
+  faceMatchId           String?   @unique @map("face_match_id")
+  faceLatencyMs         Int?      @map("face_latency_ms")
+  /// SHA-256 of AES-256-GCM encrypted face template — raw frame NEVER stored
+  faceTemplateHash      String?   @map("face_template_hash")
+  faceTemplatePurgedAt  DateTime? @map("face_template_purged_at")
+
+  // ── Identity & Account Data ──────────────────────────────────────────────
+  /// AES-256-GCM encrypted NibssIdentityPackage (ACCOUNT_SETUP only)
+  shadowProfileBlob     Bytes?    @map("shadow_profile_blob")
+  /// AES-256-GCM encrypted DiscoveredAccount[] sorted desc by balance (Financial txns)
+  accountMapBlob        Bytes?    @map("account_map_blob")
+  /// Zero-knowledge wipe timestamp — accountMapBlob set to null after execution
+  accountsWipedAt       DateTime? @map("accounts_wiped_at")
+
+  // ── Target Selection ─────────────────────────────────────────────────────
+  selectedAccountRef    String?   @map("selected_account_ref")
+  selectedBankCode      String?   @map("selected_bank_code")
+  selectedBankName      String?   @map("selected_bank_name")
+  selectedAccountType   String?   @map("selected_account_type")
+  operationAmountMinor  BigInt?   @map("operation_amount_minor")
+  recipientRef          String?   @map("recipient_ref")
+  billerCode            String?   @map("biller_code")
+
+  // ── Liveness Gate ────────────────────────────────────────────────────────
+  /// Zero-knowledge liveness result — ONLY this boolean is stored; no video/frames
+  livenessVerified      Boolean   @default(false) @map("liveness_verified")
+  livenessVerifiedAt    DateTime? @map("liveness_verified_at")
+  /// The challenge type that was successfully completed (for audit, not for replay)
+  completedChallengeType String?  @map("completed_challenge_type")
+
+  // ── Execution ────────────────────────────────────────────────────────────
+  accountNumber         String?   @map("account_number")    // ACCOUNT_SETUP
+  executionRef          String?   @map("execution_ref")     // Financial
+  executionResult       String?   @map("execution_result")
+  failureReason         String?   @map("failure_reason")
+
+  // ── Sub-60-Second Mandate ────────────────────────────────────────────────
+  /// Stamped at the moment NIBSS returns a match — mandate clock starts here
+  nibssMatchedAt        DateTime? @map("nibss_matched_at")
+  completedAt           DateTime? @map("completed_at")
+  /// Total elapsed ms from nibssMatchedAt → completedAt (must be < 60 000)
+  totalElapsedMs        Int?      @map("total_elapsed_ms")
+  mandateMet            Boolean?  @map("mandate_met")
+
+  sessionExpiresAt      DateTime  @map("session_expires_at")
+  orgId                 String    @default("default") @map("org_id")
+  createdAt             DateTime  @default(now()) @map("created_at")
+
+  auditLogs             BlideAuditLog[]
+  livenessChallenge     BlideLivenessChallenge[]
+
+  @@map("blide_session")
+  @@index([sessionRef])
+  @@index([faceMatchId])
+  @@index([transactionType, status])
+  @@index([status, createdAt])
+  @@index([orgId, createdAt])
+}
+
+/// Single-use liveness challenge record — anti-replay registry.
+/// consumed MUST be false and expiresAt MUST be in the future for a challenge to be valid.
+/// The response frames are processed in-memory only; NEVER written to this table.
+model BlideLivenessChallenge {
+  id               String    @id @default(cuid())
+  /// UUID — single-use, validated before every liveness response
+  challengeId      String    @unique @map("challenge_id")
+  sessionRef       String    @map("session_ref")
+  /// "BLINK_TWICE"|"SMILE_TEETH"|"OPEN_MOUTH"|"TURN_LEFT"|"TURN_RIGHT"|"NOD_HEAD"|"RAISE_EYEBROWS"
+  challengeType    String    @map("challenge_type")
+  prompt           String    @map("prompt")
+  /// Server-generated nonce — adds entropy even if challenge type is guessed
+  nonce            String    @map("nonce")
+  /// Anti-replay flag — set to true exactly once upon valid liveness response
+  consumed         Boolean   @default(false) @map("consumed")
+  consumedAt       DateTime? @map("consumed_at")
+  /// Null until consumed; then set to the CV result (stub: always true on valid response)
+  livenessVerified Boolean?  @map("liveness_verified")
+  /// Challenge expires 30 seconds after issuance
+  expiresAt        DateTime  @map("expires_at")
+  orgId            String    @default("default") @map("org_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  session          BlideSession @relation(fields: [sessionRef], references: [sessionRef])
+
+  @@map("blide_liveness_challenge")
+  @@index([challengeId])
+  @@index([sessionRef])
+  @@index([consumed, expiresAt])
+}
+
+/// Append-only BLIDE audit trail.
+/// faceMatchId + livenessVerified (boolean) + challengeType are the mandatory compliance fields.
+model BlideAuditLog {
+  id               String    @id @default(cuid())
+  sessionRef       String    @map("session_ref")
+  eventType        String    @map("event_type")
+  faceMatchId      String?   @map("face_match_id")
+  livenessVerified Boolean?  @map("liveness_verified")
+  challengeType    String?   @map("challenge_type")
+  transactionType  String?   @map("transaction_type")
+  faceLatencyMs    Int?      @map("face_latency_ms")
+  totalElapsedMs   Int?      @map("total_elapsed_ms")
+  metadataJson     String?   @map("metadata_json")
+  orgId            String    @default("default") @map("org_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  session          BlideSession @relation(fields: [sessionRef], references: [sessionRef])
+
+  @@map("blide_audit_log")
+  @@index([sessionRef])
+  @@index([faceMatchId])
+  @@index([eventType, createdAt])
+  @@index([orgId, createdAt])
+}
+
+// ─── CASD — Command Center: Admin & Settlement Dashboard ─────────────────────
+
+/// Financial Institution onboarding pipeline.
+/// 3-stage approval: PENDING_REVIEW → VERIFICATION_IN_PROGRESS → APPROVED | REJECTED.
+model BankApplication {
+  id                 String         @id @default(cuid())
+  bankName           String         @map("bank_name")
+  bankCode           String?        @unique @map("bank_code")
+  /// "COMMERCIAL" | "MICROFINANCE" | "MOBILE_MONEY" | "COOPERATIVE"
+  bankCategory       String         @map("bank_category")
+  contactName        String         @map("contact_name")
+  contactEmail       String         @map("contact_email")
+  contactPhone       String         @map("contact_phone")
+  country            String         @default("NG") @map("country")
+  registrationNumber String?        @map("registration_number")
+  /// "PENDING_REVIEW" | "VERIFICATION_IN_PROGRESS" | "APPROVED" | "REJECTED"
+  status             String         @map("status")
+  reviewerNotes      String?        @map("reviewer_notes")
+  approvedAt         DateTime?      @map("approved_at")
+  rejectedAt         DateTime?      @map("rejected_at")
+  /// Number of sovereign document push events dispatched to this bank
+  pushCount          Int            @default(0) @map("push_count")
+
+  documents          BankDocument[]
+  pushes             BankDocPush[]
+
+  orgId              String         @default("default") @map("org_id")
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+
+  @@map("bank_application")
+  @@index([status, createdAt])
+  @@index([orgId, createdAt])
+}
+
+/// Regulatory and corporate documents uploaded by the FI during onboarding.
+model BankDocument {
+  id                String          @id @default(cuid())
+  bankApplicationId String          @map("bank_application_id")
+  /// "CBN_LICENSE" | "BOG_LICENSE" | "CORPORATE_REG" | "BIOMETRIC_SIGNATORY" | "TAX_CLEARANCE" | "OTHER"
+  documentType      String          @map("document_type")
+  documentName      String          @map("document_name")
+  documentUrl       String?         @map("document_url")
+  /// SHA-256 hash of the uploaded file (integrity verification)
+  documentHash      String?         @map("document_hash")
+  fileSizeBytes     Int?            @map("file_size_bytes")
+  mimeType          String?         @map("mime_type")
+  verifiedAt        DateTime?       @map("verified_at")
+  verifiedBy        String?         @map("verified_by")
+  orgId             String          @default("default") @map("org_id")
+  uploadedAt        DateTime        @default(now()) @map("uploaded_at")
+
+  application       BankApplication @relation(fields: [bankApplicationId], references: [id])
+
+  @@map("bank_document")
+  @@index([bankApplicationId])
+  @@index([documentType])
+}
+
+/// F-Man Technologies' own regulatory documents — the Sovereign Vault.
+/// Sent automatically to approved banks via the Push-to-Bank trigger.
+model SovereignDocument {
+  id               String        @id @default(cuid())
+  /// "CAC_INCORPORATION" | "DIRECTORS_BIOMETRIC" | "DIRECTORS_ID" |
+  /// "TAX_CLEARANCE" | "OPERATIONAL_PERMIT" | "NDIC_REGISTRATION"
+  documentType     String        @map("document_type")
+  documentName     String        @map("document_name")
+  issuingAuthority String        @map("issuing_authority")
+  issueDate        DateTime      @map("issue_date")
+  expiryDate       DateTime?     @map("expiry_date")
+  documentHash     String        @map("document_hash")
+  isActive         Boolean       @default(true) @map("is_active")
+  downloadCount    Int           @default(0) @map("download_count")
+
+  pushes           BankDocPush[]
+
+  orgId            String        @default("default") @map("org_id")
+  createdAt        DateTime      @default(now()) @map("created_at")
+
+  @@map("sovereign_document")
+  @@index([documentType, isActive])
+  @@index([orgId])
+}
+
+/// Audit log for every sovereign document push event (auto or manual).
+model BankDocPush {
+  id                  String            @id @default(cuid())
+  bankApplicationId   String            @map("bank_application_id")
+  sovereignDocumentId String?           @map("sovereign_document_id")
+  /// "AUTO" (triggered on APPROVED status) | "MANUAL" (admin-initiated)
+  pushType            String            @map("push_type")
+  recipientEmail      String            @map("recipient_email")
+  /// "QUEUED" | "SENT" | "FAILED"
+  deliveryStatus      String            @map("delivery_status")
+  sentAt              DateTime?         @map("sent_at")
+  orgId               String            @default("default") @map("org_id")
+  createdAt           DateTime          @default(now()) @map("created_at")
+
+  application         BankApplication   @relation(fields: [bankApplicationId], references: [id])
+  document            SovereignDocument? @relation(fields: [sovereignDocumentId], references: [id])
+
+  @@map("bank_doc_push")
+  @@index([bankApplicationId])
+  @@index([sovereignDocumentId])
+  @@index([deliveryStatus, createdAt])
+  @@index([orgId, createdAt])
+}
+
+// ─── RSCC — Revenue & Settlement Command Center ───────────────────────────────
+
+/// 31-day rolling license per bank. Auto-restricts API at Day 0 until renewal confirmed.
+model BankLicense {
+  id                   String    @id @default(cuid())
+  bankApplicationId    String    @map("bank_application_id")
+  bankName             String    @map("bank_name")
+  bankCode             String?   @map("bank_code")
+  licenseKey           String    @unique @map("license_key")
+  renewalFeeMinor      BigInt    @default(50000000) @map("renewal_fee_minor") // ₦500,000
+  licenseStartDate     DateTime  @map("license_start_date")
+  licenseEndDate       DateTime  @map("license_end_date")   // startDate + 31 days
+  /// "ACTIVE" (>7d) | "EXPIRING_SOON" (1-7d) | "SUSPENDED" (0d — API restricted) | "RENEWED"
+  status               String    @map("status")
+  apiAccessRestricted  Boolean   @default(false) @map("api_access_restricted")
+  renewalConfirmedAt   DateTime? @map("renewal_confirmed_at")
+  renewalConfirmedBy   String?   @map("renewal_confirmed_by")
+  dedicatedAcctBalance BigInt    @default(0) @map("dedicated_acct_balance")
+  lastStatusCheckAt    DateTime? @map("last_status_check_at")
+  orgId                String    @default("default") @map("org_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  @@map("bank_license")
+  @@index([status])
+  @@index([licenseEndDate])
+  @@index([bankApplicationId])
+  @@index([orgId])
+}
+
+/// One record per biometric YES call or financial transaction toll event.
+/// Switching fees: NIBSS_YES_CALL ₦50 flat | TRANSFER 0.5% | BILL_PAYMENT ₦100 | WITHDRAWAL 0.3%.
+model SwitchingToll {
+  id               String   @id @default(cuid())
+  sessionRef       String   @map("session_ref")
+  /// "BIH" | "BLIDE_FACE" | "BLS_FINGERPRINT"
+  sessionType      String   @map("session_type")
+  /// "NIBSS_YES_CALL" | "TRANSFER" | "BILL_PAYMENT" | "WITHDRAWAL"
+  tollType         String   @map("toll_type")
+  feeMinor         BigInt   @map("fee_minor")
+  bankCode         String?  @map("bank_code")
+  bankName         String?  @map("bank_name")
+  agentId          String?  @map("agent_id")
+  agentState       String?  @map("agent_state")
+  agentLga         String?  @map("agent_lga")
+  tenMRuleApplied  Boolean  @default(false) @map("ten_m_rule_applied")
+  amountMinor      BigInt?  @map("amount_minor")
+  orgId            String   @default("default") @map("org_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@map("switching_toll")
+  @@index([sessionType, createdAt])
+  @@index([tollType, createdAt])
+  @@index([bankCode, createdAt])
+  @@index([agentState, agentLga])
+  @@index([orgId, createdAt])
+}
+
+/// RSCC Ajo (Secured Saving) registry — one record per registered saver account.
+/// Day-1 fee (₦500) feeds the 40/60 distribution engine.
+model AjoAccount {
+  id                    String    @id @default(cuid())
+  accountRef            String    @unique @map("account_ref")
+  holderName            String    @map("holder_name")
+  holderBvnMasked       String    @map("holder_bvn_masked")
+  bankCode              String    @map("bank_code")
+  bankName              String    @map("bank_name")
+  cycleStartDate        DateTime  @map("cycle_start_date")
+  cycleLengthDays       Int       @default(31) @map("cycle_length_days")
+  /// "ACTIVE" | "COMPLETED" | "BROKEN" | "SUSPENDED"
+  status                String    @map("status")
+  day1FeeMinor          BigInt    @default(50000) @map("day1_fee_minor")  // ₦500
+  /// "COLLECTED" | "PENDING" | "FAILED"
+  day1FeeStatus         String    @default("PENDING") @map("day1_fee_status")
+  day1FeeCollectedAt    DateTime? @map("day1_fee_collected_at")
+  targetAmountMinor     BigInt    @map("target_amount_minor")
+  currentBalanceMinor   BigInt    @default(0) @map("current_balance_minor")
+  safeBreakPenaltyMinor BigInt?   @map("safe_break_penalty_minor")
+  orgId                 String    @default("default") @map("org_id")
+  createdAt             DateTime  @default(now()) @map("created_at")
+
+  @@map("ajo_account")
+  @@index([status, createdAt])
+  @@index([bankCode])
+  @@index([day1FeeStatus])
+  @@index([orgId, createdAt])
+}
+
+/// Daily 40/60 Day-1 fee distribution record — one row per calendar day.
+/// twoPercentPoolMinor = 2% of agentPoolMinor, disbursed as daily agent wallet credit.
+model AgentLiquidityDistribution {
+  id                  String    @id @default(cuid())
+  distributionDate    DateTime  @map("distribution_date")
+  totalDay1FeesMinor  BigInt    @map("total_day1_fees_minor")
+  fmanShareMinor      BigInt    @map("fman_share_minor")      // 40%
+  agentPoolMinor      BigInt    @map("agent_pool_minor")      // 60%
+  twoPercentPoolMinor BigInt    @map("two_percent_pool_minor")// 2% of agentPool
+  rewardPerAgentMinor BigInt    @map("reward_per_agent_minor")// twoPercent / totalAgents
+  totalAgentsEligible Int       @map("total_agents_eligible")
+  /// "DISBURSED" | "PENDING_CONFIRMATION"
+  status              String    @map("status")
+  disbursedAt         DateTime? @map("disbursed_at")
+  orgId               String    @default("default") @map("org_id")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  @@map("agent_liquidity_distribution")
+  @@index([distributionDate])
+  @@index([status])
+  @@index([orgId])
+}
+
+/// Real-time dedicated account balance per bank.
+/// Red-flag triggers when balance < projectedPayout48hMinor.
+model DedicatedAccountBalance {
+  id                      String    @id @default(cuid())
+  bankApplicationId       String    @unique @map("bank_application_id")
+  bankName                String    @map("bank_name")
+  bankCode                String?   @map("bank_code")
+  balanceMinor            BigInt    @map("balance_minor")
+  projectedPayout48hMinor BigInt    @map("projected_payout_48h_minor")
+  redFlagTriggered        Boolean   @default(false) @map("red_flag_triggered")
+  redFlagTriggeredAt      DateTime? @map("red_flag_triggered_at")
+  lastReconciledAt        DateTime  @map("last_reconciled_at")
+  orgId                   String    @default("default") @map("org_id")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  @@map("dedicated_account_balance")
+  @@index([redFlagTriggered])
+  @@index([orgId])
+}
+
+/// Admin red-flag alert — created automatically by the distribution engine.
+/// Severities: CRITICAL (balance < 48h threshold) | HIGH | MEDIUM | LOW.
+model AdminRedFlag {
+  id          String    @id @default(cuid())
+  /// "LOW_DEDICATED_ACCOUNT" | "LICENSE_EXPIRING" | "AJO_SAFE_BREAK" | "SWITCHING_ANOMALY"
+  flagType    String    @map("flag_type")
+  /// "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"
+  severity    String    @map("severity")
+  bankCode    String?   @map("bank_code")
+  bankName    String?   @map("bank_name")
+  message     String    @map("message")
+  isResolved  Boolean   @default(false) @map("is_resolved")
+  resolvedAt  DateTime? @map("resolved_at")
+  resolvedBy  String?   @map("resolved_by")
+  orgId       String    @default("default") @map("org_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@map("admin_red_flag")
+  @@index([isResolved, createdAt])
+  @@index([flagType])
+  @@index([severity])
+  @@index([orgId])
+}
+
+// ─── ZFPS — Zero-Friction Provisioning Stack ──────────────────────────────────
+
+/// Per-call latency record for every bank CBS API operation.
+/// Used by BankLatencyMonitorService to compute moving averages and trigger AdminRedFlags.
+model BankApiLatencyLog {
+  id             String   @id @default(cuid())
+  bankCode       String   @map("bank_code")
+  bankName       String   @map("bank_name")
+  sessionRef     String   @map("session_ref")
+  /// "ACCOUNT_OPENING" | "BALANCE_QUERY" | "TRANSFER" | "BILL_PAYMENT"
+  operationType  String   @map("operation_type")
+  latencyMs      Int      @map("latency_ms")
+  statusCode     Int?     @map("status_code")
+  succeeded      Boolean  @map("succeeded")
+  alertTriggered Boolean  @default(false) @map("alert_triggered")
+  orgId          String   @default("default") @map("org_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("bank_api_latency_log")
+  @@index([bankCode, createdAt])
+  @@index([latencyMs])
+  @@index([alertTriggered])
+  @@index([orgId, createdAt])
+}
+
+/// Full provisioning audit trail for every ZFPS account-opening event.
+/// vaultOpenedAt / vaultClosedAt track the 60-second Redis NDPR window.
+/// accountNumber is stored masked (last 4 digits only) — full number delivered via SMS only.
+model ZfpsProvisioningEvent {
+  id              String    @id @default(cuid())
+  sessionRef      String    @unique @map("session_ref")
+  bankCode        String    @map("bank_code")
+  bankName        String    @map("bank_name")
+  accountType     String    @map("account_type")
+  nibssMatchId    String    @map("nibss_match_id")
+  iso20022MsgId   String    @map("iso20022_msg_id")
+  /// Timestamp when Redis vault was written (identity data staged)
+  vaultOpenedAt   DateTime  @map("vault_opened_at")
+  /// Timestamp when Redis vault was explicitly invalidated (or expired)
+  vaultClosedAt   DateTime? @map("vault_closed_at")
+  cbsLatencyMs    Int?      @map("cbs_latency_ms")
+  /// Masked account number — e.g. "***4271". Full number sent via SMS only.
+  accountNumberMasked String? @map("account_number_masked")
+  /// "PROVISIONING" | "COMPLETED" | "FAILED" | "VAULT_EXPIRED"
+  status          String    @map("status")
+  smsSentAt       DateTime? @map("sms_sent_at")
+  smsDelivered    Boolean?  @map("sms_delivered")
+  smsProvider     String?   @map("sms_provider")
+  mandateMet      Boolean?  @map("mandate_met")
+  orgId           String    @default("default") @map("org_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  completedAt     DateTime? @map("completed_at")
+
+  @@map("zfps_provisioning_event")
+  @@index([status, createdAt])
+  @@index([bankCode, createdAt])
+  @@index([nibssMatchId])
+  @@index([orgId, createdAt])
+}
+
+/// SMS delivery log for every account number notification dispatched.
+model SmsSendLog {
+  id            String    @id @default(cuid())
+  /// Masked phone — e.g. "***4712"
+  recipient     String    @map("recipient")
+  /// "ACCOUNT_CREATED" | "OTP" | "ALERT"
+  messageType   String    @map("message_type")
+  sessionRef    String?   @map("session_ref")
+  /// "TERMII" | "TWILIO" | "STUB"
+  provider      String    @map("provider")
+  messageBody   String    @map("message_body")
+  providerMsgId String?   @map("provider_msg_id")
+  /// "SENT" | "DELIVERED" | "FAILED"
+  status        String    @map("status")
+  sentAt        DateTime? @map("sent_at")
+  orgId         String    @default("default") @map("org_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@map("sms_send_log")
+  @@index([recipient])
+  @@index([status, createdAt])
+  @@index([sessionRef])
+  @@index([orgId, createdAt])
+}

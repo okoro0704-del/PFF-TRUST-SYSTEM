@@ -1,0 +1,7 @@
+export const EXEC_TRANSFER_POSTED       = "POSTED";
+export const EXEC_TRANSFER_PROVISIONAL  = "PROVISIONAL_PENDING_SOVRYN";
+export const WITHDRAW_ACTIVE            = "ACTIVE";
+export const WITHDRAW_REDEEMED          = "REDEEMED";
+export const WITHDRAW_EXPIRED           = "EXPIRED";
+export const BILL_STATUS_SETTLED        = "SETTLED";
+export const BILL_STATUS_PROVISIONAL    = "PROVISIONAL_PENDING_SOVRYN";

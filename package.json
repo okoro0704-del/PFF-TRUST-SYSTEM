@@ -1,0 +1,23 @@
+{
+  "name": "bsss-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "build:packages": "npm run build -w @bsss/domain -w @bsss/crypto -w @bsss/nibss-adapters",
+    "dev:api": "npm run start:dev -w @bsss/api",
+    "dev:dashboard": "npm run dev -w @bsss/dashboard",
+    "db:generate": "npm run prisma:generate -w @bsss/api",
+    "db:migrate": "npm run prisma:migrate -w @bsss/api",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

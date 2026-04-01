@@ -1,0 +1,131 @@
+syntax = "proto3";
+
+package zfps;
+
+// ─── Zero-Friction Provisioning Stack — gRPC Service Definition ───────────────
+//
+// NestJS bootstrap (when @nestjs/microservices + @grpc/grpc-js are installed):
+//
+//   ClientsModule.register([{
+//     name:      'ZFPS_SERVICE',
+//     transport: Transport.GRPC,
+//     options: {
+//       url:       process.env.ZFPS_GRPC_URL ?? 'localhost:50051',
+//       package:   'zfps',
+//       protoPath: 'src/zfps/proto/zfps.proto',
+//     },
+//   }])
+//
+// Why gRPC?
+//   • HTTP/2 multiplexing — hundreds of agent POS terminals provisioning concurrently
+//   • Binary Protobuf encoding — ~10x smaller payload than JSON for identity data
+//   • Bidirectional streaming — real-time provisioning status push to POS terminal
+//   • Sub-millisecond internal latency vs ~2ms for REST/JSON
+//   • Strong typed contracts — breaking changes caught at compile time
+// ─────────────────────────────────────────────────────────────────────────────
+
+service ZfpsService {
+  // Trigger full account provisioning pipeline (NIBSS→ISO20022→CBS→SMS)
+  rpc ProvisionAccount(ProvisionRequest) returns (ProvisionResponse);
+
+  // Real-time provisioning status — server-streaming for POS terminal updates
+  rpc StreamProvisioningStatus(StatusRequest) returns (stream StatusEvent);
+
+  // Today's provisioning pulse metrics
+  rpc GetProvisioningPulse(PulseRequest) returns (PulseResponse);
+
+  // Per-bank CBS latency dashboard
+  rpc GetLatencyDashboard(LatencyRequest) returns (LatencyResponse);
+}
+
+// ─── ProvisionAccount ─────────────────────────────────────────────────────────
+message ProvisionRequest {
+  string session_ref     = 1;  // Unique session reference (BLIDE / ZFOE session ID)
+  string nibss_token_id  = 2;  // Opaque NIBSS identity token (from biometric match)
+  string nibss_match_id  = 3;  // NIBSS match transaction ID for audit
+  string bank_code       = 4;  // CBN sort code (e.g. "058063220")
+  string account_type    = 5;  // "SAVINGS" | "CURRENT"
+  // Identity fields — sourced exclusively from NIBSS; never user-supplied
+  string first_name      = 6;
+  string last_name       = 7;
+  string middle_name     = 8;
+  string date_of_birth   = 9;  // ISO 8601: "1992-07-14"
+  string gender          = 10; // "M" | "F"
+  string address         = 11;
+  string state_of_origin = 12;
+  string bvn             = 13; // 11-digit BVN
+  string phone_number    = 14; // BVN-linked MSISDN for SMS delivery
+  string org_id          = 15;
+}
+
+message ProvisionResponse {
+  bool   success          = 1;
+  string account_number   = 2;  // Full NUBAN — delivered here AND via SMS
+  string bank_name        = 3;
+  string iso20022_msg_id  = 4;  // Audit reference for CBN/NIBSS reporting
+  string iso20022_sha256  = 5;  // Message integrity hash
+  int32  cbs_latency_ms   = 6;
+  int32  total_elapsed_ms = 7;
+  bool   mandate_met      = 8;  // true if total_elapsed_ms < 60,000
+  bool   sms_sent         = 9;
+  string sms_provider     = 10; // "TERMII" | "TWILIO" | "STUB"
+  string vault_mode       = 11; // "LIVE" | "FALLBACK"
+  string error_message    = 12; // Populated on failure
+}
+
+// ─── StreamProvisioningStatus ─────────────────────────────────────────────────
+message StatusRequest {
+  string session_ref = 1;
+  string org_id      = 2;
+}
+
+message StatusEvent {
+  string session_ref   = 1;
+  string status        = 2;  // "PROVISIONING" | "COMPLETED" | "FAILED" | "VAULT_EXPIRED"
+  int32  elapsed_ms    = 3;
+  string stage         = 4;  // "VAULT_OPEN" | "ISO20022_BUILT" | "CBS_CALL" | "VAULT_CLOSED" | "SMS_SENT"
+  string detail        = 5;
+  int64  timestamp_ms  = 6;
+}
+
+// ─── GetProvisioningPulse ─────────────────────────────────────────────────────
+message PulseRequest {
+  string org_id = 1;
+}
+
+message PulseResponse {
+  int32  today_count       = 1;
+  int32  success_count     = 2;
+  float  success_rate      = 3;
+  int32  avg_cbs_latency_ms= 4;
+  int32  sms_count         = 5;
+  float  sms_rate          = 6;
+  int32  mandate_met_count = 7;
+  float  mandate_met_rate  = 8;
+  string vault_mode        = 9;
+}
+
+// ─── GetLatencyDashboard ──────────────────────────────────────────────────────
+message LatencyRequest {
+  string org_id       = 1;
+  int32  window_hours = 2;  // Default 24
+}
+
+message BankLatencyRow {
+  string bank_code     = 1;
+  string bank_name     = 2;
+  int32  avg_ms        = 3;
+  int32  min_ms        = 4;
+  int32  max_ms        = 5;
+  int32  last_ms       = 6;
+  int32  call_count    = 7;
+  int32  alert_count   = 8;
+  string traffic_light = 9;  // "GREEN" | "AMBER" | "RED" | "GREY"
+}
+
+message LatencyResponse {
+  repeated BankLatencyRow banks = 1;
+  int32  alert_threshold_ms     = 2;
+  int32  window_hours           = 3;
+}
+

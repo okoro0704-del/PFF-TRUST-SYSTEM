@@ -1,0 +1,2 @@
+export const TERMINAL_LOCK_HARD = "HARD_LOCK";
+export const TERMINAL_UNLOCKED = "UNLOCKED";
