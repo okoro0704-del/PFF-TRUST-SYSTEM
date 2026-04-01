@@ -3,8 +3,11 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // Supabase connection pooler (Transaction mode) — used for all runtime queries
+  url       = env("DATABASE_URL")
+  // Direct connection — used by Prisma Migrate (bypasses PgBouncer)
+  directUrl = env("DIRECT_URL")
 }
 
 /// Triple-Gate encrypted storage (FR-03, FR-06)

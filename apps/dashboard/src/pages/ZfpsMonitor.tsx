@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { supabase, isSupabaseReady } from "../lib/supabase";
 
 const API = "/api";
 
@@ -39,12 +40,14 @@ const fmtMs = (ms: number | null) =>
   ms === null ? "—" : ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 
 export function ZfpsMonitor({ onBack }: { onBack: () => void }) {
-  const [pulse,   setPulse]   = useState<Pulse | null>(null);
-  const [latency, setLatency] = useState<LatencyDashboard | null>(null);
-  const [events,  setEvents]  = useState<ProvisioningEvent[]>([]);
-  const [smsLogs, setSmsLogs] = useState<SmsLog[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState<string | null>(null);
+  const [pulse,       setPulse]       = useState<Pulse | null>(null);
+  const [latency,     setLatency]     = useState<LatencyDashboard | null>(null);
+  const [events,      setEvents]      = useState<ProvisioningEvent[]>([]);
+  const [smsLogs,     setSmsLogs]     = useState<SmsLog[]>([]);
+  const [loading,     setLoading]     = useState(false);
+  const [error,       setError]       = useState<string | null>(null);
+  const [realtimeLive, setRealtimeLive] = useState(false);
+  const channelRef = useRef<ReturnType<NonNullable<typeof supabase>["channel"]> | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -68,6 +71,69 @@ export function ZfpsMonitor({ onBack }: { onBack: () => void }) {
     finally { setLoading(false); }
   }, []);
 
+  // ── Supabase Realtime subscriptions ────────────────────────────────────────
+  useEffect(() => {
+    if (!isSupabaseReady() || !supabase) return;
+
+    const ch = supabase
+      .channel("zfps-monitor")
+      // New provisioning event → prepend to list + refresh pulse
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "zfps_provisioning_event" },
+        (payload) => {
+          const row = payload.new as {
+            id: string; session_ref: string; bank_name: string | null;
+            account_type: string; status: string; cbs_latency_ms: number | null;
+            mandate_met: boolean; sms_sent: boolean; account_number_masked: string | null;
+            created_at: string;
+          };
+          const newEvent: ProvisioningEvent = {
+            id: row.id, sessionRef: row.session_ref,
+            bankName: row.bank_name ?? "—", accountType: row.account_type,
+            status: row.status, cbsLatencyMs: row.cbs_latency_ms,
+            mandateMet: row.mandate_met, smsSentAt: row.sms_sent ? row.created_at : null,
+            smsDelivered: row.sms_sent, smsProvider: null,
+            accountNumberMasked: row.account_number_masked, createdAt: row.created_at,
+          };
+          setEvents(prev => [newEvent, ...prev].slice(0, 15));
+          // Re-fetch pulse stats silently
+          fetch(`${API}/v1/zfps/pulse`).then(r => r.json()).then(setPulse).catch(() => null);
+        },
+      )
+      // New latency log → refresh latency table
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "bank_api_latency_log" },
+        () => {
+          fetch(`${API}/v1/zfps/latency`).then(r => r.json()).then(setLatency).catch(() => null);
+        },
+      )
+      // New SMS log → prepend
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "sms_send_log" },
+        (payload) => {
+          const row = payload.new as {
+            id: string; recipient_masked: string; message_preview: string;
+            provider: string; status: string; created_at: string;
+          };
+          const newSms: SmsLog = {
+            id: row.id, recipient: row.recipient_masked,
+            messageType: row.message_preview, provider: row.provider,
+            status: row.status, sentAt: row.created_at, createdAt: row.created_at,
+          };
+          setSmsLogs(prev => [newSms, ...prev].slice(0, 15));
+        },
+      )
+      .subscribe((status) => {
+        setRealtimeLive(status === "SUBSCRIBED");
+      });
+
+    channelRef.current = ch;
+    return () => { void supabase.removeChannel(ch); };
+  }, []);
+
   useEffect(() => { void load(); }, [load]);
 
   return (
@@ -79,6 +145,10 @@ export function ZfpsMonitor({ onBack }: { onBack: () => void }) {
           <p className="panel-title" style={{ marginBottom: "0.25rem" }}>F-Man Technologies</p>
           <h1 className="serif" style={{ fontSize: "1.6rem", color: "var(--gold-bright)" }}>⚡ Zero-Friction Provisioning Stack</h1>
           <p className="text-xs dim">NIBSS → ISO 20022 → CBS → SMS · Sub-60s mandate · Redis NDPR vault</p>
+          <p style={{ marginTop: "0.4rem", fontSize: "0.72rem", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: realtimeLive ? "#22c55e" : (isSupabaseReady() ? "#f59e0b" : "#6b7280"), display: "inline-block" }} />
+            {realtimeLive ? "Supabase Realtime — LIVE" : isSupabaseReady() ? "Supabase connecting…" : "Supabase not configured (polling mode)"}
+          </p>
         </div>
         <button className="btn btn--gold btn--sm" onClick={() => void load()} disabled={loading}>
           {loading ? <span className="spin">⏳</span> : "↻ Refresh"}

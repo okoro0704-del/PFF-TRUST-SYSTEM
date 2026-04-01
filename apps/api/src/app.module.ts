@@ -20,6 +20,7 @@ import { CasdModule } from "./casd/casd.module";
 import { RsccModule } from "./rscc/rscc.module";
 import { RedisModule } from "./redis/redis.module";
 import { ZfpsModule } from "./zfps/zfps.module";
+import { SupabaseModule } from "./supabase/supabase.module";
 import { HealthController } from "./health.controller";
 
 @Module({
@@ -45,6 +46,7 @@ import { HealthController } from "./health.controller";
     RsccModule,
     RedisModule,
     ZfpsModule,
+    SupabaseModule,
   ],
   controllers: [HealthController],
 })
