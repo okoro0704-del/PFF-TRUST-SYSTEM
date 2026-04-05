@@ -1,8 +1,199 @@
-node_modules
-dist
+# ═══════════════════════════════════════════════════════════════════════════════
+# F-MAN SOVEREIGN SDK — .gitignore
+# "What is sealed in the vault stays in the vault."
+# PFF-TRUST · BSSS Security Standard — Repository Hygiene Protocol v1.0.0
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+# ── 1. ENVIRONMENT FILES & BACKEND SECRETS ────────────────────────────────────
+# ALL .env variants are strictly excluded.
+# Use .env.example (committed) as the only reference template.
+# NEVER commit DATABASE_URL, SUPABASE_SERVICE_ROLE_KEY, BSSS_MASTER_SECRET,
+# BVN_PEPPER, AES keys, NIBSS_API_KEY, TERMII_API_KEY, REDIS_URL, etc.
 .env
-.env.local
-*.log
+.env.*
+!.env.example
+!.env.example.*
+**/.env
+**/.env.*
+!**/.env.example
+
+# ── 2. PRIVATE KEYS, CERTIFICATES & CRYPTOGRAPHIC MATERIAL ───────────────────
+# AES-256-GCM keys, HMAC secrets, TOTP seeds, TLS certs — NEVER committed.
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+*.csr
+*.jks
+*.keystore
+*.asc
+*.gpg
+*.pgp
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+id_ecdsa
+id_ecdsa.pub
+# Catch any hard-coded secret files
+secrets/
+secret/
+certs/
+keys/
+private/
+
+# ── 3. DATABASE URLS & CONNECTION STRINGS ─────────────────────────────────────
+# Supabase / PostgreSQL / Redis connection strings are sourced from .env only.
+# Files that may accidentally embed connection strings:
+*.conn
+*.connection
+*.dsn
+database.yml
+database.yaml
+# Prisma shadow database URL leaks
+prisma/.env
+prisma/.env.*
+
+# ── 4. BUILD ARTIFACTS & COMPILED OUTPUT ──────────────────────────────────────
+# NestJS / tsc
+dist/
+build/
+out/
+bin/
+*.js.map
+*.d.ts.map
+# Vite / React
+apps/dashboard/dist/
+# NestJS nest build artifacts
+apps/api/dist/
+# Package build outputs
+packages/*/dist/
+packages/*/build/
+packages/*/out/
+
+# ── 5. NODE MODULES ───────────────────────────────────────────────────────────
+node_modules/
+**/node_modules/
+.pnp
+.pnp.js
+.pnp.cjs
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# ── 6. IDE & LOCAL EDITOR SETTINGS ───────────────────────────────────────────
+# VS Code
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json.example
+# JetBrains (IntelliJ, WebStorm, GoLand, Rider)
+.idea/
+*.iml
+*.iws
+*.ipr
+# Vim / Neovim
+*.swp
+*.swo
+.nvim/
+# Emacs
+*~
+\#*\#
+.\#*
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+# Eclipse
+.project
+.classpath
+.settings/
+# Zed
+.zed/
+
+# ── 7. OPERATING SYSTEM FILES ─────────────────────────────────────────────────
+# macOS
 .DS_Store
-coverage
-.turbo
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+# Linux
+.directory
+
+# ── 8. LOGS ───────────────────────────────────────────────────────────────────
+logs/
+*.log
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+# NestJS runtime logs
+apps/api/logs/
+
+# ── 9. TESTING & COVERAGE ─────────────────────────────────────────────────────
+coverage/
+**/coverage/
+.nyc_output/
+*.lcov
+junit.xml
+test-results/
+playwright-report/
+.playwright/
+
+# ── 10. CACHING & TASK-RUNNER ARTIFACTS ──────────────────────────────────────
+.turbo/
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+.prettiercache
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# ── 11. RUNTIME & PROCESS FILES ──────────────────────────────────────────────
+*.pid
+*.seed
+*.pid.lock
+*.sock
+
+# ── 12. CLOUD / DEPLOYMENT SECRETS ───────────────────────────────────────────
+# Netlify
+.netlify/
+# Vercel
+.vercel/
+# AWS
+.aws/credentials
+.aws/config
+# Firebase
+.firebase/
+firebase-debug.log
+firestore-debug.log
+# Google Cloud
+gcloud-service-key.json
+*.sa.json
+
+# ── 13. PRISMA GENERATED CLIENT (BUILT ON DEPLOY) ────────────────────────────
+# The generated Prisma client is rebuilt during CI/CD via `prisma generate`.
+# Committing it bloats the repo and can leak schema-derived types.
+apps/api/node_modules/.prisma/
+apps/api/src/generated/
+
+# ── 14. MISCELLANEOUS ─────────────────────────────────────────────────────────
+*.bak
+*.tmp
+*.temp
+*.orig
+.sass-cache/
+.fusebox/
+.dynamodb/

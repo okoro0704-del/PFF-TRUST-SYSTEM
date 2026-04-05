@@ -1,5 +1,7 @@
 {
   "name": "bsss-monorepo",
+  "version": "1.0.0",
+  "description": "F-Man Sovereign SDK v1.0.0 — The Biometric Identity & Ajo Settlement Layer. PFF-TRUST · Proprietary · All Rights Reserved.",
   "private": true,
   "workspaces": [
     "apps/*",

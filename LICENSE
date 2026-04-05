@@ -1,0 +1,183 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          F-MAN SOVEREIGN SDK — PROPRIETARY SOFTWARE LICENCE
+          PFF-TRUST · Biometric Identity & Ajo Settlement Layer
+                          Version 1.0.0 · 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Copyright © 2026 PFF-TRUST. All Rights Reserved.
+
+NOTICE: This software and all associated source code, documentation, design
+specifications, biometric protocols, cryptographic schemes, and compiled
+artefacts (collectively, the "Software") are the exclusive proprietary property
+of PFF-TRUST ("the Licensor").
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. GRANT OF LICENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Subject to the terms of a valid, signed PFF-TRUST Partner Agreement and the
+payment of the applicable Sovereign Licence Fee, the Licensor grants to the
+approved institution ("the Licensee") a:
+
+  • NON-EXCLUSIVE — no other licensee's rights are diminished
+  • NON-TRANSFERABLE — cannot be assigned, sublicensed, or resold
+  • REVOCABLE — Licensor may terminate for breach with 14 days' notice
+  • LIMITED — strictly for integration into the Licensee's CBN-licensed
+    financial services platform
+
+right to access and integrate the Software's public API surface within
+the Licensee's production environment.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. RESTRICTIONS — WHAT YOU MAY NOT DO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The Licensee SHALL NOT, and shall ensure that its officers, employees,
+contractors, and agents do not:
+
+  a) Copy, reproduce, or distribute the Software or any portion thereof to
+     any third party without the prior written consent of the Licensor.
+
+  b) Reverse-engineer, decompile, disassemble, decrypt, or otherwise attempt
+     to derive the source code, biometric algorithms, cryptographic keys, or
+     BSSS protocol specification from any compiled artefact.
+
+  c) Modify, adapt, translate, or create derivative works based upon the
+     Software, in whole or in part.
+
+  d) Sublicense, sell, rent, lease, transfer, assign, or otherwise
+     commercially exploit the Software to any third party.
+
+  e) Remove, obscure, or alter any proprietary notices, copyright marks,
+     trademarks, or legends contained in or on the Software.
+
+  f) Use the Software in any manner that violates:
+       — Central Bank of Nigeria (CBN) Agent Banking Guidelines
+       — Nigeria Data Protection Act (NDPA) 2023
+       — NITDA Information Security Policy
+       — Financial Action Task Force (FATF) Recommendations
+       — Any applicable Anti-Money Laundering (AML) / Know Your Customer
+         (KYC) regulation enforceable in the Federal Republic of Nigeria.
+
+  g) Store raw biometric data — fingerprints, facial geometry, iris scans —
+     in any database, log file, network packet, or persistent medium.
+     The BSSS (Biometric System Security Standard) mandates that only
+     cryptographically signed SUCCESS_TOKENs leave the user's device.
+
+  h) Hard-code Sovereign API Keys, BSSS_MASTER_SECRET values, DATABASE_URLs,
+     BVN_PEPPER values, or any cryptographic secret into source code or
+     commit them to any version-control system.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. SOVEREIGN API KEY & LICENCE FEE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  • Each Licensee is issued one (1) Sovereign API Key per approved hostAppId.
+  • The annual Sovereign Licence Fee is ₦500,000 (Five Hundred Thousand Naira),
+    payable in advance on the anniversary of the Partner Agreement date.
+  • Keys are revoked automatically on the first day following non-renewal.
+  • Emergency suspension (within 1 hour) is available to the Licensor at any
+    time for breach of this Licence or CBN directive.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. INTELLECTUAL PROPERTY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+All title, ownership, and intellectual property rights in and to the Software —
+including but not limited to the F-Man brand, the BSSS protocol, the Kingmaker
+Sovereign Vault Protocol, the Ajo Settlement Layer, the YES CALL biometric gate,
+and all associated trademarks, trade secrets, patents pending, and copyrights —
+remain exclusively with PFF-TRUST.
+
+This Licence does not convey any ownership interest in the Software to the
+Licensee. Any feedback, suggestions, or improvement proposals submitted by the
+Licensee become the sole property of PFF-TRUST without obligation of
+compensation.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. DATA PROTECTION & BIOMETRIC COMPLIANCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  • The Licensee is the Data Controller for all customer data processed via
+    the Software within the Licensee's platform.
+  • PFF-TRUST acts as Data Processor and processes data only as instructed
+    by the Licensee and in accordance with the NDPA 2023.
+  • Biometric data is governed exclusively by the BSSS protocol: processed
+    on-device, never transmitted, and represented externally only as a
+    signed SUCCESS_TOKEN.
+  • The Licensee must maintain a valid Data Protection Compliance Programme
+    certified by NITDA.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. DISCLAIMER OF WARRANTIES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE". THE LICENSOR EXPRESSLY
+DISCLAIMS ALL WARRANTIES, WHETHER EXPRESS, IMPLIED, STATUTORY, OR OTHERWISE,
+INCLUDING WITHOUT LIMITATION ANY IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT.
+
+THE LICENSOR DOES NOT WARRANT THAT THE SOFTWARE WILL BE UNINTERRUPTED,
+ERROR-FREE, OR FREE OF HARMFUL COMPONENTS. THE LICENSEE ASSUMES ALL RISKS
+ASSOCIATED WITH THE USE OF THE SOFTWARE IN A REGULATED FINANCIAL ENVIRONMENT.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. LIMITATION OF LIABILITY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE
+LICENSOR BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL,
+PUNITIVE, OR EXEMPLARY DAMAGES, INCLUDING LOSS OF PROFITS, REVENUE, DATA,
+GOODWILL, OR BUSINESS INTERRUPTION, HOWEVER CAUSED AND UNDER ANY THEORY OF
+LIABILITY (CONTRACT, TORT, STRICT LIABILITY, OR OTHERWISE), EVEN IF THE
+LICENSOR HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+THE LICENSOR'S TOTAL AGGREGATE LIABILITY ARISING OUT OF OR IN CONNECTION WITH
+THIS LICENCE SHALL NOT EXCEED THE SOVEREIGN LICENCE FEE PAID BY THE LICENSEE
+IN THE TWELVE (12) MONTHS IMMEDIATELY PRECEDING THE CLAIM.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. TERMINATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This Licence is effective until terminated. The Licensor may terminate
+immediately if the Licensee:
+
+  (i)   Breaches any provision of this Licence and fails to cure within 14 days
+  (ii)  Loses its CBN Agent Banking Licence or equivalent regulatory approval
+  (iii) Becomes insolvent, enters administration, or ceases to trade
+  (iv)  Is found to have stored raw biometric data in violation of the BSSS
+  (v)   Fails to renew the annual Sovereign Licence Fee
+
+Upon termination, the Licensee must immediately cease all use of the Software,
+destroy all copies in its possession, and certify such destruction in writing
+to PFF-TRUST within 7 business days.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. GOVERNING LAW & JURISDICTION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This Licence shall be governed by and construed in accordance with the laws
+of the Federal Republic of Nigeria. Any dispute arising under or in connection
+with this Licence shall be subject to the exclusive jurisdiction of the courts
+of Lagos State, Nigeria.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. CONTACT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Licensing Enquiries:   legal@pff-trust.ng
+  Technical Support:     api@pff-trust.ng
+  CBN Compliance:        compliance@pff-trust.ng
+  Partner Portal:        https://bank.pff-trust.ng
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ♛  PROPRIETARY — ALL RIGHTS RESERVED
+     Unauthorised use, reproduction, or distribution of this Software
+     constitutes a criminal offence under the Cybercrime (Prohibition,
+     Prevention, etc.) Act 2015 (as amended) of the Federal Republic of Nigeria
+     and will be prosecuted to the fullest extent of the law.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
