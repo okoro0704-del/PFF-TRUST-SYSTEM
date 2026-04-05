@@ -1406,3 +1406,153 @@ model SmsSendLog {
   @@index([sessionRef])
   @@index([orgId, createdAt])
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  KINGMAKER — Sovereign Vault Partner Protocol
+//  F-Man Life OS Middleware · Open Opt-In Marketplace
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Registry of banks/fintechs that have opted in to the Sovereign Vault Protocol.
+/// Banks apply → Admin approves → they join the pool and receive AJO vault deposits.
+/// Performance metrics are tracked per partner so poor performers can be suspended.
+model SovereignPartner {
+  id                    String    @id @default(cuid())
+
+  /// CBN bank sort-code (3-digit). Must be unique in the pool.
+  bankCode              String    @unique @map("bank_code")
+  bankName              String    @map("bank_name")
+
+  /// URL the PFF backend calls for createVault / flipActive / releaseWithdrawal
+  apiEndpoint           String    @map("api_endpoint")
+
+  /// Argon2id hash of the Sovereign License Key issued on approval
+  licenseKeyHash        String    @map("license_key_hash")
+
+  /// PENDING | APPROVED | SUSPENDED | REVOKED
+  status                String    @default("PENDING") @map("status")
+
+  /// Technical contact from the bank's engineering team
+  contactEmail          String    @map("contact_email")
+  contactName           String    @map("contact_name")
+
+  /// CBN Agent Banking licence reference submitted with application
+  cbnLicenceRef         String    @map("cbn_licence_ref")
+
+  /// Admin-set note on approval or suspension
+  adminNote             String?   @map("admin_note")
+
+  /// Lifecycle timestamps
+  appliedAt             DateTime  @default(now()) @map("applied_at")
+  approvedAt            DateTime? @map("approved_at")
+  suspendedAt           DateTime? @map("suspended_at")
+  revokedAt             DateTime? @map("revoked_at")
+
+  /// Running performance counters (updated on each event)
+  totalVaultsCreated    Int       @default(0)  @map("total_vaults_created")
+  totalVaultsFlipped    Int       @default(0)  @map("total_vaults_flipped")
+  totalFlipFailures     Int       @default(0)  @map("total_flip_failures")
+
+  /// Running total value locked (in kobo / minor units)
+  totalTvlMinor         BigInt    @default(0)  @map("total_tvl_minor")
+
+  /// Exponential-moving-average of flip API latency in milliseconds
+  avgFlipLatencyMs      Int       @default(0)  @map("avg_flip_latency_ms")
+
+  /// 0-100 uptime percentage tracked by the PFF health-checker
+  apiUptimePct          Decimal   @default(100) @map("api_uptime_pct") @db.Decimal(5, 2)
+
+  orgId                 String    @default("default") @map("org_id")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  vaults                SovereignVault[]
+
+  @@map("sovereign_partner")
+  @@index([status])
+  @@index([bankCode])
+  @@index([orgId, status])
+}
+
+/// One sovereign vault per AJO/SSA cycle.
+/// Linked to AjoAccount. Holds the dedicated NUBAN at the partner bank.
+/// Status drives the withdrawal gate — SOVEREIGN_RESTRICTED blocks ALL debits
+/// until PFF sends the FLIP_STATUS_ACTIVE command on Day 31.
+model SovereignVault {
+  id                    String    @id @default(cuid())
+
+  /// FK → AjoAccount.accountRef
+  ajoAccountRef         String    @map("ajo_account_ref")
+
+  /// FK → SovereignPartner.bankCode
+  partnerBankCode       String    @map("partner_bank_code")
+  partnerBankName       String    @map("partner_bank_name")
+
+  /// AES-256-GCM encrypted NUBAN (decrypted only at withdrawal time)
+  encryptedNuban        String    @map("encrypted_nuban")
+
+  /// The partner bank's internal vault/account reference
+  partnerVaultRef       String    @map("partner_vault_ref")
+
+  /// SOVEREIGN_RESTRICTED | SOVEREIGN_ACTIVE | WITHDRAWN
+  vaultStatus           String    @default("SOVEREIGN_RESTRICTED") @map("vault_status")
+
+  /// Which legacy bank the user's BVN was originally linked to (migration tracking)
+  legacyBankCode        String?   @map("legacy_bank_code")
+  legacyBankName        String?   @map("legacy_bank_name")
+
+  /// Amount locked at vault creation (kobo)
+  targetAmountMinor     BigInt    @map("target_amount_minor")
+
+  /// Lifecycle timestamps
+  createdAt             DateTime  @default(now()) @map("created_at")
+  flipScheduledFor      DateTime? @map("flip_scheduled_for")  // Day-31 00:00 WAT
+  flippedAt             DateTime? @map("flipped_at")
+  withdrawnAt           DateTime? @map("withdrawn_at")
+
+  /// ms it took the partner bank API to confirm the flip
+  flipLatencyMs         Int?      @map("flip_latency_ms")
+
+  orgId                 String    @default("default") @map("org_id")
+
+  partner               SovereignPartner @relation(fields: [partnerBankCode], references: [bankCode])
+
+  @@map("sovereign_vault")
+  @@index([ajoAccountRef])
+  @@index([partnerBankCode, vaultStatus])
+  @@index([vaultStatus, flipScheduledFor])
+  @@index([legacyBankCode])
+  @@index([orgId, createdAt])
+}
+
+/// Append-only audit log — every Kingmaker event recorded, never updated.
+/// Used for the Kingmaker Dashboard audit trail and regulatory reporting.
+model KingmakerAuditLog {
+  id              String   @id @default(cuid())
+
+  /// VAULT_CREATED | FLIP_SCHEDULED | FLIP_SENT | FLIP_SUCCESS | FLIP_FAILED
+  /// | SDK_WITHDRAWAL_RELEASED | PARTNER_APPROVED | PARTNER_SUSPENDED
+  eventType       String   @map("event_type")
+
+  vaultRef        String?  @map("vault_ref")
+  ajoAccountRef   String?  @map("ajo_account_ref")
+  partnerBankCode String?  @map("partner_bank_code")
+  legacyBankCode  String?  @map("legacy_bank_code")
+
+  /// Amount involved (kobo) — null for admin events
+  amountMinor     BigInt?  @map("amount_minor")
+
+  /// Partner bank API latency for this specific call (ms)
+  latencyMs       Int?     @map("latency_ms")
+
+  /// Free-form JSON for extra context (error message, flip token ref, etc.)
+  metadataJson    String?  @map("metadata_json")
+
+  orgId           String   @default("default") @map("org_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("kingmaker_audit_log")
+  @@index([eventType, createdAt])
+  @@index([partnerBankCode, createdAt])
+  @@index([vaultRef])
+  @@index([orgId, createdAt])
+}
